@@ -148,6 +148,10 @@ parse_arguments()
                 fi
             fi
         else
+            if [[ -n "${dest}" ]]; then
+                echo "The destination directory option (-d) is only valid in conjunction with restore (-r)" >&2
+                exit "${einval}"
+            fi
             for file_ in "${files[@]}"; do
                 if [[ ! -e "${file_}" ]]; then
                     echo "File ${file_} does not exist" >&2
