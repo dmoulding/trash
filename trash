@@ -26,8 +26,7 @@ Options:
     -l    List the contents of the trash. No FILE should be specified
           when using this option.
 
-    -r
-          Restore the files. The files will be restored to their
+    -r    Restore the files. The files will be restored to their
           original location, unless the -d option is specified in
           which case all of the files will be restored to the
           directory DEST (which must exist).
