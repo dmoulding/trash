@@ -1,0 +1,219 @@
+#!/bin/bash
+
+readonly eperm=1
+readonly enoent=2
+readonly einval=22
+readonly enodata=61
+readonly enopkg=65
+
+readonly usage="\
+Usage: trash FILE
+       trash -l
+       trash -r FILE
+
+Trashes a file (or directory) [first form], lists the contents of the
+trash [second form], or restores a file (or directory) from the trash
+[third form].
+
+Options:
+
+    -l    List the contents of the trash. No FILE should be specified
+          when using this option.
+
+    -r FILE
+          Restore FILE. The file will be restored to its original
+          location. If the original location no longer exists, it will
+          be recreated, if possible. If the original location
+          information is not available (the trash metadata for the
+          file cannot be found or parsed), or the orignal location
+          does not exist and cannot be recreated, then the file is
+          restored to the current directory.
+"
+
+check_kioclient5()
+{
+    if "${kioclient5_checked}"; then
+        return 0
+    fi
+
+    local kioclient5_=$(type -p kioclient5)
+
+    if [[ -z "${kioclient5_}" ]]; then
+        echo "kioclient5 not found" >&2
+        exit "${enopkg}"
+    fi
+
+    if [[ ! -x "${kioclient5_}" ]]; then
+        echo "kioclient5 not executable or execute permission not allowed" >&2
+        exit "${eperm}"
+    fi
+
+    kioclient5_checked=true
+}
+
+execute_command()
+{
+    if "${list}"; then
+        list_trash
+    elif "${restore}"; then
+        restore_file
+    else
+        trash_file
+    fi
+}
+
+get_orig_path()
+{
+    local trashinfo_=${HOME}/.local/share/Trash/info/${file}.trashinfo
+
+    if [[ ! -f "${trashinfo_}" || ! -r "${trashinfo_}" ]]; then
+        return 0
+    fi
+
+    orig_path=$(awk -F = '$1 == "Path" { print $2; exit }' "${trashinfo_}")
+    orig_path=${orig_path%/*}
+}
+
+list_trash()
+{
+    local output_=
+    local status_=
+
+    output_=$(kioclient5 --noninteractive ls trash:/ 2>&1)
+    status_=${?}
+    if [[ "${status_}" -ne 0 ]]; then
+        echo "Failed to list trash contents: ${output_} (${status_})" >&2
+        exit "${enodata}"
+    fi
+
+    awk '
+        $0 == "." {
+            next
+        }
+        {
+            file=$0
+            sub(/^0-/, "", file)
+            print file
+        }
+    ' <<< "${output_}"
+}
+
+parse_arguments()
+{
+    file=${1}
+    shift 1
+
+    if "${list}"; then
+        if [[ -n "${file}" ]]; then
+            echo "When listing the trash, no file name should be specified" >&2
+            exit "${einval}"
+        fi
+    else
+        if [[ -z "${file}" ]]; then
+            if "${restore}"; then
+                echo "Please specify a file from the trash to restore" >&2
+                exit "${einval}"
+            else
+                echo "Please specify a file to trash" >&2
+                exit "${einval}"
+            fi
+        fi
+
+        if "${restore}"; then
+            verify_in_trash
+            get_orig_path
+        else
+            if [[ ! -e "${file}" ]]; then
+                echo "File ${file} does not exist" >&2
+                exit "${enoent}"
+            fi
+        fi
+    fi
+}
+
+parse_command_line()
+{
+    parse_options "${@}"
+    shift $((OPTIND - 1))
+    parse_arguments "${@}"
+}
+
+parse_options()
+{
+    local opt_=
+
+    while getopts "hlr" opt_; do
+        case "${opt_}" in
+            h) echo "${usage}"; exit 0;;
+            l) list=true;;
+            r) restore=true;;
+            ?) echo "${usage}" >&2; exit "${einval}";;
+        esac
+    done
+
+    if "${list}" && "${restore}"; then
+        echo "Please specify only one operation at a time" >&2
+        exit "${einval}"
+    fi
+}
+
+restore_file()
+{
+    local dest_=
+    local output_=
+    local status_=
+
+    if [[ -n "${orig_path}" ]]; then
+        mkdir -p "${orig_path}" &> /dev/null
+        if [[ -d "${orig_path}" ]]; then
+            dest_=${orig_path}
+        fi
+    fi
+
+    if [[ -z "${dest_}" ]]; then
+        dest_=.
+    fi
+
+    output_=$(kioclient5 --noninteractive mv trash:/0-"${file}" "${dest_}" 2>&1)
+    status_=${?}
+    if [[ "${status_}" -ne 0 ]]; then
+        echo "Restoring ${file} to ${dest_} failed: ${output_} (${status_})" >&2
+        exit "${enodata}"
+    fi
+}
+
+trash_file()
+{
+    local output_=
+    local status_=
+
+    output_=$(kioclient5 --noninteractive mv "${file}" trash:/ 2>&1)
+    status_=${?}
+    if [[ "${status_}" -ne 0 ]]; then
+        echo "Moving ${file} to trash failed: ${output_} (${status_})" >&2
+        exit "${enodata}"
+    fi
+}
+
+verify_in_trash()
+{
+    if ! kioclient5 --noninteractive ls trash:/0-"${file}" &> /dev/null; then
+        echo "File ${file} not found in the trash" >&2
+        exit "${enoent}"
+    fi
+}
+
+file=
+kioclient5_checked=false
+list=false
+orig_path=
+restore=false
+
+parse_command_line "${@}"
+
+execute_command
+
+# Local Variables:
+# sh-basic-offset: 4
+# indent-tabs-mode: nil
+# End:
