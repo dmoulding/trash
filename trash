@@ -53,6 +53,8 @@ check_kioclient5()
 
 execute_command()
 {
+    check_kioclient5
+
     if "${list}"; then
         list_trash
     elif "${restore}"; then
@@ -197,6 +199,8 @@ trash_file()
 
 verify_in_trash()
 {
+    check_kioclient5
+
     if ! kioclient5 --noninteractive ls trash:/0-"${file}" &> /dev/null; then
         echo "File ${file} not found in the trash" >&2
         exit "${enoent}"
