@@ -17,6 +17,8 @@ trash [second form], or restores a file (or directory) from the trash
 
 Options:
 
+    -h    Show this help information.
+
     -l    List the contents of the trash. No FILE should be specified
           when using this option.
 
