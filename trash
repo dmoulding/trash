@@ -9,7 +9,7 @@ readonly enopkg=65
 readonly usage="\
 Usage: trash FILE
        trash -l
-       trash -r FILE
+       trash -r FILE [DEST]
 
 Trashes a file (or directory) [first form], lists the contents of the
 trash [second form], or restores a file (or directory) from the trash
@@ -22,12 +22,19 @@ Options:
 
     -r FILE
           Restore FILE. The file will be restored to its original
-          location. If the original location no longer exists, it will
-          be recreated, if possible. If the original location
-          information is not available (the trash metadata for the
-          file cannot be found or parsed), or the orignal location
-          does not exist and cannot be recreated, then the file is
-          restored to the current directory.
+          location, unless DEST is specified in which case the file
+          will be restored to the directory DEST (which must exist).
+
+          If the file will be restored to its original location, then:
+
+            - If the original location no longer exists, it will be
+              recreated, if possible.
+
+            - If the original location information is not available
+              (the trash metadata for the file cannot be found or
+              parsed), or the original location does not exist and
+              cannot be recreated, then the file is restored to the
+              current directory.
 "
 
 check_kioclient5()
@@ -103,11 +110,12 @@ list_trash()
 parse_arguments()
 {
     file=${1}
-    shift 1
+    dest=${2}
+    shift 2
 
     if "${list}"; then
         if [[ -n "${file}" ]]; then
-            echo "When listing the trash, no file name should be specified" >&2
+            echo "When listing the trash, no arguments should be given" >&2
             exit "${einval}"
         fi
     else
@@ -123,7 +131,14 @@ parse_arguments()
 
         if "${restore}"; then
             verify_in_trash
-            get_orig_path
+            if [[ -n "${dest}" ]]; then
+                if [[ ! -d "${dest}" ]]; then
+                    echo "The specified destination, ${dest}, is not an existing directory" >&2
+                    exit "${enoent}"
+                fi
+            else
+                get_orig_path
+            fi
         else
             if [[ ! -e "${file}" ]]; then
                 echo "File ${file} does not exist" >&2
@@ -161,25 +176,26 @@ parse_options()
 
 restore_file()
 {
-    local dest_=
     local output_=
     local status_=
 
-    if [[ -n "${orig_path}" ]]; then
-        mkdir -p "${orig_path}" &> /dev/null
-        if [[ -d "${orig_path}" ]]; then
-            dest_=${orig_path}
+    if [[ -z "${dest}" ]]; then
+        if [[ -n "${orig_path}" ]]; then
+            mkdir -p "${orig_path}" &> /dev/null
+            if [[ -d "${orig_path}" ]]; then
+                dest=${orig_path}
+            fi
+        fi
+
+        if [[ -z "${dest}" ]]; then
+            dest=.
         fi
     fi
 
-    if [[ -z "${dest_}" ]]; then
-        dest_=.
-    fi
-
-    output_=$(kioclient5 --noninteractive mv trash:/0-"${file}" "${dest_}" 2>&1)
+    output_=$(kioclient5 --noninteractive mv trash:/0-"${file}" "${dest}" 2>&1)
     status_=${?}
     if [[ "${status_}" -ne 0 ]]; then
-        echo "Restoring ${file} to ${dest_} failed: ${output_} (${status_})" >&2
+        echo "Restoring ${file} to ${dest} failed: ${output_} (${status_})" >&2
         exit "${enodata}"
     fi
 }
@@ -207,6 +223,7 @@ verify_in_trash()
     fi
 }
 
+dest=
 file=
 kioclient5_checked=false
 list=false
